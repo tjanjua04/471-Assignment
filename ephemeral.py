@@ -10,7 +10,7 @@ welcomeSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 welcomeSocket.bind(('',0))
 
 # Retreive the ephemeral port number
-print "I chose ephemeral port: ", welcomeSocket.getsockname()[1]
+print ("I chose ephemeral port: ", welcomeSocket.getsockname()[1])
 
 
 

@@ -1,88 +1,134 @@
 import socket
 import sys
+import os
 
 def send_command(sock, command):
-    sock.send(command.encode())
+    sock.sendall((command + '\n').encode())
 
-def receive_response(sock):
-    response = sock.recv(1024).decode()
-    print("Server:", response)
-    return response
+def receive_line(sock):
+    line = b''
+    while not line.endswith(b'\n'):
+        char = sock.recv(1)
+        if not char:
+            break
+        line += char
+    return line.decode().strip()
+
+def receive_headers(sock):
+    headers = {}
+    while True:
+        line = receive_line(sock)
+        if line == '':
+            break  # End of headers
+        key, value = line.split(": ")
+        headers[key] = value
+    return headers
 
 def download_file(sock, filename):
-    response = receive_response(sock)
-    print(f"Debug: Response received - {response}")  # Debugging line
-    response_lines = response.split("\n")
-    if len(response_lines) < 2:  # Check if the response has the required parts
-        print("Error: Incomplete response from server.")
+    # Wait for server status code
+    response = receive_line(sock)
+    print("Server:", response)
+    if not response.startswith("SUCCESS 200"):
+        print("Server rejected the GET command.")
         return
-    header = response_lines[1].split()  # File info is in the second line
-    if len(header) < 3:
-        print("Error: Unexpected header format.")
+
+    # Receive headers
+    headers = receive_headers(sock)
+    filesize = int(headers.get("Content-Length", 0))
+    if filesize == 0:
+        print("Invalid file size received.")
         return
-    
-    filename = header[1]  # Extract filename
-    filesize = int(header[2])  # Extract filesize
-    response = receive_response(sock)
-    if response.startswith("SUCCESS"):
-        response_lines = response.split("\n")
-        header = response_lines[0].split()  # First line contains the status
-        filename = header[3]                # Extract filename from the header
-        filesize = int(header[4])  
-        filesize = int(filesize)
-        with open(filename, 'wb') as file:
-            received_bytes = 0
-            while received_bytes < filesize:
-                chunk = sock.recv(1024)
-                if chunk == b'EOF':
-                    break
-                file.write(chunk)
-                received_bytes += len(chunk)
-        print(f"File {filename} downloaded successfully.")
+
+    print(f"Downloading '{filename}' of size {filesize} bytes.")
+    received_bytes = 0
+    with open(filename, 'wb') as file:
+        while received_bytes < filesize:
+            buffer_size = min(4096, filesize - received_bytes)
+            chunk = sock.recv(buffer_size)
+            if not chunk:
+                print("Connection lost while receiving file data.")
+                break
+            file.write(chunk)
+            received_bytes += len(chunk)
+            print(f"Received {received_bytes}/{filesize} bytes")
+    print(f"File '{filename}' downloaded successfully.")
+
+    # Now read the file and display its contents
+    print("\nFile contents:")
+    try:
+        with open(filename, 'r') as file:
+            print(file.read())
+    except UnicodeDecodeError:
+        print("The file is not a text file and cannot be displayed.")
 
 def upload_file(sock, filename):
     try:
         filesize = os.path.getsize(filename)
-        send_command(sock, f"FILE {filename} {filesize}")
+        print(f"Uploading '{filename}' of size {filesize} bytes.")
+        # Send the PUT command with filename
+        send_command(sock, f"PUT {filename}")
+
+        # Wait for server status code
+        response = receive_line(sock)
+        print("Server:", response)
+        if not response.startswith("SUCCESS 200"):
+            print("Server rejected the PUT command.")
+            return
+
+        # Send headers
+        sock.sendall(f"Content-Length: {filesize}\n\n".encode())
+
+        # Send the file data
         with open(filename, 'rb') as file:
-            chunk = file.read(1024)
-        while chunk:
-            sock.send(chunk)
-            chunk = file.read(1024)
-        sock.send("EOF".encode())
-        print(receive_response(sock))
+            bytes_sent = 0
+            while True:
+                chunk = file.read(4096)
+                if not chunk:
+                    break
+                sock.sendall(chunk)
+                bytes_sent += len(chunk)
+                print(f"Sent {bytes_sent}/{filesize} bytes")
+        print("Finished sending file data.")
+
+        # Wait for server's final acknowledgment
+        response = receive_line(sock)
+        print("Server:", response)
+        if response.startswith("SUCCESS 201"):
+            print(f"File '{filename}' uploaded successfully.")
+        else:
+            print("Error: Did not receive upload completion confirmation from server.")
     except FileNotFoundError:
-        print(f"File {filename} not found.")
+        print(f"File '{filename}' not found.")
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python client.py <server_address> <server_port>")
+        print("Usage: python FTPClient.py <server_address> <server_port>")
         sys.exit(1)
-    
+
     server_address = sys.argv[1]
     server_port = int(sys.argv[2])
-    
+
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((server_address, server_port))
-    
+
     while True:
-        command = input("ftp> ")
-        if command.startswith("GET"):
+        command = input("ftp> ").strip()
+        if command.startswith("GET "):
+            filename = command.split()[1]
             send_command(client_socket, command)
-            download_file(client_socket, command.split()[1])
-        elif command.startswith("PUT"):
-            send_command(client_socket, command)
+            download_file(client_socket, filename)
+        elif command.startswith("PUT "):
             upload_file(client_socket, command.split()[1])
-        elif command == "LS":
-            send_command(client_socket, command)
-            print(receive_response(client_socket))
         elif command == "QUIT":
             send_command(client_socket, command)
-            print(receive_response(client_socket))
-            break
+            response = receive_line(client_socket)
+            print("Server:", response)
+            if response.startswith("SUCCESS 200"):
+                print("Connection closed by server.")
+                break
         else:
-            print("Invalid command.")
-    
+            print("Invalid or unsupported command.")
+
     client_socket.close()
 
 if __name__ == "__main__":

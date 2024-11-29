@@ -24,6 +24,39 @@ def receive_headers(sock):
         headers[key] = value
     return headers
 
+def list_files(sock):
+    # Wait for server status code
+    response = receive_line(sock)
+    print("Server:", response)
+    if not response.startswith("SUCCESS 200"):
+        print("Server rejected the LS command.")
+        return
+
+    # Receive headers
+    headers = receive_headers(sock)
+    content_length = int(headers.get("Content-Length", 0))
+    if content_length == 0:
+        print("Invalid content length received.")
+        return
+
+    # Receive the file list data
+    received_bytes = 0
+    file_list_data = b''
+    while received_bytes < content_length:
+        buffer_size = min(4096, content_length - received_bytes)
+        chunk = sock.recv(buffer_size)
+        if not chunk:
+            print("Connection lost while receiving file list.")
+            return
+        file_list_data += chunk
+        received_bytes += len(chunk)
+
+    # Decode and display the file list
+    file_list = file_list_data.decode()
+    print("Files on server:")
+    print(file_list)
+
+
 def download_file(sock, filename):
     # Wait for server status code
     response = receive_line(sock)
@@ -119,6 +152,9 @@ def main():
             download_file(client_socket, filename)
         elif command.startswith("PUT "):
             upload_file(client_socket, command.split()[1])
+        elif command == "LS":
+            send_command(client_socket, command)
+            list_files(client_socket)
         elif command == "QUIT":
             send_command(client_socket, command)
             response = receive_line(client_socket)

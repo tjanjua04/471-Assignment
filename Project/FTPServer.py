@@ -5,6 +5,12 @@ import os
 # server command: python3 FTPServer.py
 # client commands: python3 FTPClient.py -> GET test.txt 
 
+# Define a directory for uploaded files
+UPLOAD_DIRECTORY = "uploads"
+
+# Ensure the upload directory exists
+os.makedirs(UPLOAD_DIRECTORY, exist_ok=True)
+
 def read_line(sock):
     line = b''
     while not line.endswith(b'\n'):
@@ -32,8 +38,10 @@ def handle_client(connection, addr):
                 continue
 
             filename = args[0]
-            if os.path.exists(filename):
-                filesize = os.path.getsize(filename)
+            # Access files in the server's current working directory
+            filepath = os.path.join(os.getcwd(), filename)
+            if os.path.exists(filepath):
+                filesize = os.path.getsize(filepath)
                 # Send success status code and message
                 connection.sendall(f"SUCCESS 200 OK\n".encode())
 
@@ -41,7 +49,7 @@ def handle_client(connection, addr):
                 connection.sendall(f"Content-Length: {filesize}\n\n".encode())
 
                 # Send the file data
-                with open(filename, 'rb') as file:
+                with open(filepath, 'rb') as file:
                     while True:
                         chunk = file.read(4096)
                         if not chunk:
@@ -57,6 +65,7 @@ def handle_client(connection, addr):
                 continue
 
             filename = args[0]
+            filepath = os.path.join(UPLOAD_DIRECTORY, filename)  # Save in upload directory
             # Send success status code and message
             connection.sendall(f"SUCCESS 200 OK\n".encode())
 
@@ -78,7 +87,7 @@ def handle_client(connection, addr):
             print(f"Receiving file '{filename}' of size {filesize} bytes.")
 
             # Receive the file data
-            with open(filename, 'wb') as file:
+            with open(filepath, 'wb') as file:
                 received_bytes = 0
                 while received_bytes < filesize:
                     buffer_size = min(4096, filesize - received_bytes)
@@ -92,6 +101,25 @@ def handle_client(connection, addr):
             print(f"File '{filename}' uploaded successfully.")
             # Send final acknowledgment to client
             connection.sendall("SUCCESS 201 Upload Complete\n".encode())
+
+        elif command == "LS":
+            # List files in the upload directory
+            try:
+                files = os.listdir(UPLOAD_DIRECTORY)
+                # Filter out directories if you only want files
+                files = [f for f in files if os.path.isfile(os.path.join(UPLOAD_DIRECTORY, f))]
+                file_list = '\n'.join(files)
+                content_length = len(file_list.encode())
+                # Send success status code and message
+                connection.sendall(f"SUCCESS 200 OK\n".encode())
+                # Send the content length header
+                connection.sendall(f"Content-Length: {content_length}\n\n".encode())
+                # Send the file list
+                connection.sendall(file_list.encode())
+                print("Sent file list to client.")
+            except Exception as e:
+                print(f"Error retrieving file list: {e}")
+                connection.sendall("FAILURE 500 Internal Server Error\n".encode())
 
         elif command == "QUIT":
             connection.sendall("SUCCESS 200 Goodbye\n".encode())

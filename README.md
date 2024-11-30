@@ -10,7 +10,7 @@ Tiffany Tran - 21ttran11@gmail.com
 Python
 
 – How to execute your program.
-*Run both codes on 2 terminals, server first so that the server opens*
+*Run both codes on two terminals, server first so that the server opens*
 # On the first terminal, start the server:
 python3 FTPServer.py
 
@@ -36,4 +36,6 @@ QUIT
 
 
 – Anything special about your submission that we should take note of
-Executable code is in the "Project Folder" along with all the necessary components to test and run the code.
+Executable code is in the "Project Folder," along with all the necessary components to test and run the code.
+
+In case the zip file doesn't work, please use this link: https://github.com/tjanjua04/471-Assignment
